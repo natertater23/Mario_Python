@@ -1,178 +1,173 @@
-from pygame import *
-from pygame.sprite import Sprite
-import sys
-from os.path import abspath, dirname
-
-directory_path = abspath(dirname(__path__))
-images_path = directory_path + '/images/'
-sounds_path = directory_path + '/sounds/'
-fonts_path = directory_path + '/fonts'
-
-SCREEN = display.set_mode(800, 600)
-
-FIREBALL_JUMP_HEIGHT = 40
-
-# general use sounds
-
-SOUNDS = {}
-for sound_name in []:
-    SOUNDS[sound_name] = mixer.Sound(
-        sounds_path + '{}.wav'.format(sound_name))
-    SOUNDS[sound_name].set_volume(0.2)
-
-# general use images
-
-images = []
-IMAGES = {name: (images_path + '{}.png'.format(name)).convert_alpha()
-          for name in images}
-
-# mario specific sprites and images
-# format for use -> state + order of img in sprite. VERY IMPORTANT TO FOLLOW THIS FORMAT
-
-mario_images = []
-MARIO_SPRITES = {name: (images_path + '{}.png'.format(name)).convert_alpha()
-                 for name in mario_images}
+from . import settings as s
+from . import level
+from . import sprites
+from . import sounds
+from .types import Camera, Vector2, Rectangle, Digit_System
+import pygame as pg
+from .components import mario
 
 
-class superMario():
+class Main:
+    # Main loop handler
     def __init__(self):
-        mixer.pre_init(44100, -16, 1, 4096)
-        init()
-        self.clock = time.clock()
-        self.game_over = False
-        self.main_screen = True
-        self.startGame = False
-        self.display_caption = display.set_caption('Super Mario')
-        self.screen = SCREEN
-        self.should_exit = False
-        self.lives_amount = 3
+        s.camera = Camera(Vector2(), s.SCREEN_SIZE.x, s.SCREEN_SIZE.y)
+        s.mario = mario.Mario(Rectangle(s.MARIO_START_POSITION, 36, 48))
 
-    def reset(self):
-        self.player = Mario(1)
-        self.player_fireballs = sprite.Group()
-        self.enemies = sprite.Group()
-        self.terrain = sprite.Group()
-        self.allsprites = sprite.Group(self.player, self.enemies, self.terrain)
-        # self.makeWorld()
+        pg.mixer.music.load(sounds.main_theme)
+        pg.mixer.music.play()
 
-    def check_input(self):
-        super(Mario, self).__init__()
-        self.keys = key.get_pressed()
-        for e in pygame.event.get():
-            if self.should_exit:
-                sys.exit()
-            if event.type == KEYDOWN:
-                if e.key == K_SPACE and Mario.current_state == Mario.marioStates[2] and Mario.is_alive:
-                    fireball = Player_fireball(Mario.direction)
-                    self.player_fireballs.add(fireball)
-                    self.allsprites.add(self.player_fireballs)
+        self.quit_state = None
+        self.out_of_time = False
 
-        """
-    def check_collisons(self):
-        # When terrain is ready, load a group terrain in the supermario class w/ bounceable objects
-        # this section will handle fireball collisions and physics with any sprites in that group
+        self.score_system = Digit_System(Vector2(66, 49), 6) #Displays total score on screen
+        self.coin_score = Digit_System(Vector2(306, 49), 2) #Displays collected coins on screen
+        self.time = Digit_System(Vector2(610, 49), 3, 300) #Displays time on screen
+        self.timer = 0 #timer for counting down the in-game time
 
-        for fireball, object in sprite.groupcollide(self.player_fireballs, self.terrain, False, False):
-            if fireball.rect.left == object.rect.right or fireball.rect.right == object.rect.left:
-                hit.direction *= -1
-            if fireball.rect.bottom == object.rect.top:
-                fireball.baseY = fireball.rect.bottom
+    def draw(self):
+        # Main draw method
+        s.screen.fill(s.BACKGROUND_COLOR)
+        self.draw_background()
+        
+        for item in (level.coins + level.super_mushrooms):
+            if item.deployed:
+                item.draw()
 
-        for mario, powerup in sprite.groupcollide(self.player, self.powerup, false, true):
-            if powerup.type == 'mushroom' and mario.currentState == 'mini':
-                mario.currentState = 'normal'
-            if powerup.type == 'fire_flower' and mario.currentState != 'fire':
-                mario.currentState = 'fire'
+        for tile in level.dynamic_colliders:
+            if s.camera.contains(tile.rect):
+                view_pos = s.camera.to_view_space(tile.pos)
+                tile.draw(view_pos)
 
-        for mario, enemy in groupcollide(self.player, self.enemies, false, false):
-            if mario.currentState != 'mini':
-                mario.currentState = mario.marioStates[mario.currentState - 1]
-            else:
-                if self.lives_amount > 0:
-                    self.lives_amount -= 1
-                    self.reset()
-                else:
-                    self.game_over = True;
-        """
+        for enemy in level.enemies:
+            if enemy.is_active:
+                enemy.draw()
 
-    def main(self):
-        self.reset()
-        # while True:
-        # self.checkCollisions()
+        for fragment in level.brick_fragments:
+            fragment.draw()
 
+        s.flagpole.draw_flag()
 
-class Player_fireball(Sprite):
-    def __init__(self, direction):
-        super(Mario, self).__init__()
-        self.direction = direction
-        self.bounces = 0
-        self.baseY = Mario.rect.bottom
-        self.up = False
-        self.speed = 1
-        self.jump_amount = 1
-        self.timer = time.get_ticks()
-        self.moveTimer = 100
-        self.play_sound = True
-        self.shoot = SOUNDS[0]
+        s.mario.draw()
 
-        # LOAD ALL NEEDED FIREBALL IMAGES HERE from the image section
+        self.draw_foreground()
+        self.draw_digit_systems()
 
-        self.images = []
-        self.index = 0
-        self.image = self.images[0]
-        self.rect = self.image.get_rect(topright=(Mario.rect.topleft, Mario.rect.topleft))
+    def draw_background(self):
+        s.screen.blit(sprites.background,
+                      (0, 0), 
+                      (s.camera.pos.x, s.camera.pos.y, s.SCREEN_SIZE.x, s.SCREEN_SIZE.y))
 
-    def update(self, current_time):
-        if current_time - self.timer > self.moveTimer:
-            if self.bounces > 3:
-                self.kill()
-            if self.play_sound:
-                self.shoot.play()
-                self.play_sound = False
-            if self.rect.y - self.baseY <= FIREBALL_JUMP_HEIGHT:
-                self.rect.y += self.jump_amount
-            else:
-                self.rect.y -= self.jump_amount
-            if self.direction == 1:
-                self.rect.x += 1
-            else:
-                self.rect.x -= 1
-            self.image = self.images[self.index]
-            if self.index >= len(self.images):
-                self.index = 0
+    def draw_foreground(self):
+        view_pos = s.camera.to_view_space(s.FOREGROUND_POS)
+        if view_pos.x < s.camera.pos.x + s.SCREEN_SIZE.x:
+            s.screen.blit(sprites.foreground, (view_pos.x, view_pos.y))
+        s.screen.blit(sprites.text_image, (0,0))
 
+    def draw_digit_systems(self):
+        # Draws Numbers
+        self.score_system.draw()
+        self.coin_score.draw()
+        self.time.draw()
 
-class Mario(Sprite):
-    def __init__(self):
-        self.image = MARIO_SPRITES['0']
-        self.index = 0
-        self.rect = self.image.get_rect(topleft=(0, 0))
-        self.speed = 5
-        self.direction = 1
-        self.jumping = False
-        self.ducking = False
-        self.marioStates = {0: 'mini', 1: 'normal', 2: 'fire'}
-        self.current_state = self.marioStates[0]
-        self.is_alive = True
+    def handle_digit_systems(self):
+        # Numbers
+        if not s.mario.current_mario_state == 'Dead_Mario':
+            self.handle_time()
+            self.score_system.update_value(s.total_score)
+            self.coin_score.update_value(s.collected_coins)
 
-    def update(self, keys):
-        if keys[K_LEFT]:
-            self.rect.x -= self.speed
-        if keys[K_RIGHT]:
-            self.rect.x -= self.speed
-        if keys[K_UP] and not self.jumping:
-            self.jumping = True
-        if keys[K_DOWN]:
-            self.ducking = True
-        if self.ducking:
-            game.screen.blit(IMAGES[self.current_state + '_Ducking'], self.rect)
-            self.index = 0
-        else:
-            game.screen.blit(IMAGES[self.current_state + ('{}'.format(self.index))], self.rect)
-            if self.index >= len(mario_images):
-                self.index = 0
+    def handle_time(self):
+        # Timer
+        # Count down the timer
+        self.timer += s.var_time
+        if not s.final_count_down and self.timer > 14 * s.var_time:
+            self.time.update_value(self.time.total_value - 1)
+            self.timer = 0
 
+        # Timer is lower than 100, play out of time music
+        if not s.mario.current_mario_state == 'Win_State':
+            if not s.final_count_down and self.time.total_value < 100 and not self.out_of_time:
+                pg.mixer.music.stop()
+                pg.mixer.music.set_endevent(s.OUT_OF_TIME_END)
+                pg.mixer.music.load(sounds.out_of_time)
+                pg.mixer.music.play()
+                self.out_of_time = True
 
-if __name__ == 'main':
-    game = superMario()
-    game.main()
+        # If the timer runs out and mario has not won, kill mario
+        if not s.final_count_down and self.time.total_value == 0:
+            s.mario.mario_states.on_event('dead')
+
+        # If mario has won and time is still > 0, count down and add score
+        if s.final_count_down and self.time.total_value > 0:
+            self.time.update_value(self.time.total_value - 1)
+            s.total_score += s.TIME_SCORE
+            sounds.count_down.play()
+            sounds.count_down.set_volume(0.15)
+            if self.time.total_value == 0:
+                sounds.count_down.stop()
+                sounds.coin.play()
+
+    def update_level(self):
+        # Update Objects
+        s.mario.update()
+        s.mario.physics_update()
+        s.camera.update()
+        for tile in level.dynamic_colliders:
+            tile.update()
+
+        for item in (level.coins + level.super_mushrooms):
+            if item.deployed:
+                item.update()
+
+        if not s.mario.freeze_movement:
+            for enemy in level.enemies:
+                if enemy.pos.x < s.camera.pos.x + s.SCREEN_SIZE.x:
+                    enemy.is_active = True
+                enemy.update()
+
+        for fragment in level.brick_fragments:
+            fragment.update()
+
+        s.flagpole.update()
+
+    def check_for_quit(self):
+        # Lose/Quit- does not exactly work
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                return False
+            
+            if event.type == s.WIN_SONG_END and self.time.total_value == 0:
+                self.quit_state = 'menu'
+                return False
+
+            if event.type == s.DEATH_SONG_END:
+                self.quit_state = 'menu'
+                return False
+
+            if event.type == s.OUT_OF_TIME_END:
+                pg.mixer.music.stop()
+                pg.mixer.music.load(sounds.main_theme_sped_up)
+                pg.mixer.music.play()
+
+        if s.mario.to_menu:
+            self.quit_state = 'menu'
+            return False
+
+        if s.keys[pg.K_ESCAPE]:
+            return False
+        return True
+
+    def main_loop(self):
+        # draws main frame
+        while True:
+            s.var_time = s.clock.tick(60)
+            s.keys = pg.key.get_pressed()
+
+            self.update_level()
+            self.handle_digit_systems()
+            self.draw()
+
+            if not self.check_for_quit():
+                break
+
+            pg.display.update()
